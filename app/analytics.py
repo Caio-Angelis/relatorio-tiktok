@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import statistics
 from collections import defaultdict
@@ -73,6 +74,21 @@ def _mean(values: Iterable) -> float | None:
 def _median(values: Iterable) -> float | None:
     cleaned = [value for value in values if value is not None]
     return _rounded(statistics.median(cleaned), 2) if cleaned else None
+
+
+def _quantile(values: Iterable, fraction: float) -> float | None:
+    """Linear-interpolation quantile (sorted index = (n - 1) * p)."""
+
+    cleaned = sorted(value for value in values if value is not None)
+    if not cleaned:
+        return None
+    position = (len(cleaned) - 1) * fraction
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return _rounded(cleaned[lower])
+    weight = position - lower
+    return _rounded(cleaned[lower] + (cleaned[upper] - cleaned[lower]) * weight)
 
 
 def safe_rate(numerator, denominator):
@@ -222,6 +238,40 @@ def growth_since(history: list[dict], hours: int) -> dict | None:
     }
 
 
+def _ordered_history(history: list[dict]) -> list[dict]:
+    return sorted(
+        (item for item in history if _parse_iso(item.get("collected_at"))),
+        key=lambda item: _parse_iso(item.get("collected_at")),
+    )
+
+
+def recent_metric_per_hour(history: list[dict], metric: str) -> float | None:
+    """Calculate the latest observed metric velocity from two real snapshots."""
+
+    ordered = _ordered_history(history)
+    if len(ordered) < 2:
+        return None
+    previous, latest = ordered[-2], ordered[-1]
+    previous_time = _parse_iso(previous.get("collected_at"))
+    latest_time = _parse_iso(latest.get("collected_at"))
+    if previous_time is None or latest_time is None:
+        return None
+    delta_hours = (latest_time - previous_time).total_seconds() / 3600
+    if delta_hours <= 0:
+        return None
+    metric_key = {
+        "views": "view_count",
+        "likes": "like_count",
+    }.get(metric)
+    if metric_key is None:
+        return None
+    current = _number(latest.get(metric_key, latest.get(metric)))
+    previous_value = _number(previous.get(metric_key, previous.get(metric)))
+    if current is None or previous_value is None:
+        return None
+    return _rounded((current - previous_value) / delta_hours)
+
+
 def _snapshot_at_age(
     history: list[dict],
     published_at: datetime | None,
@@ -325,15 +375,17 @@ def video_analytics(
     now = now or datetime.now(timezone.utc)
     published = _parse_epoch(video.get("create_time"))
     views = _number(video.get("view_count"))
-    views_per_hour_current = None
+    lifetime_average_views_per_hour = None
     if published and views is not None:
         age_hours = (now - published).total_seconds() / 3600
         if age_hours > 0:
-            views_per_hour_current = _rounded(views / age_hours)
-    result["views_per_hour_current"] = views_per_hour_current
-    # Kept for the existing dashboard until its labels are fully migrated.
-    result["views_per_hour"] = views_per_hour_current
+            lifetime_average_views_per_hour = _rounded(views / age_hours)
     history = history or []
+    result["lifetime_average_views_per_hour"] = lifetime_average_views_per_hour
+    result["recent_views_per_hour"] = recent_metric_per_hour(history, "views")
+    result["recent_likes_per_hour"] = recent_metric_per_hour(history, "likes")
+    # Kept as an internal compatibility alias for the existing dashboard.
+    result["views_per_hour"] = lifetime_average_views_per_hour
     result["growth_24h"] = growth_since(history, 24)
     result["growth_48h"] = growth_since(history, 48)
     return result
@@ -415,6 +467,73 @@ def apply_relative_metrics(videos: list[dict]) -> list[dict]:
     return copies
 
 
+def distribution_analytics(videos: list[dict]) -> dict:
+    """Return compact distribution statistics using the same quantile method."""
+
+    views = [_number(video.get("view_count")) for video in videos]
+    engagements = [
+        video.get("analytics", {}).get("engagement_rate") for video in videos
+    ]
+
+    def distribution(values: Iterable) -> dict:
+        cleaned = [value for value in values if value is not None]
+        if not cleaned:
+            return {}
+        return {
+            "p25": _quantile(cleaned, 0.25),
+            "p50": _quantile(cleaned, 0.50),
+            "p75": _quantile(cleaned, 0.75),
+            "p90": _quantile(cleaned, 0.90),
+            "p95": _quantile(cleaned, 0.95),
+            "max": _rounded(max(cleaned)),
+        }
+
+    return {
+        "views": distribution(views),
+        "engagement_rate": distribution(engagements),
+    }
+
+
+def _robust_outliers(
+    videos: list[dict], value_getter: Callable[[dict], float | int | None], value_name: str
+) -> list[dict]:
+    values = [(video, value_getter(video)) for video in videos]
+    values = [(video, value) for video, value in values if value is not None]
+    if len(values) < 3:
+        return []
+    numeric_values = [value for _video, value in values]
+    median = statistics.median(numeric_values)
+    deviations = [abs(value - median) for value in numeric_values]
+    mad = statistics.median(deviations)
+    if mad == 0:
+        candidates = [(video, value) for video, value in values if value != median]
+    else:
+        candidates = [
+            (video, value)
+            for video, value in values
+            if abs(0.6745 * (value - median) / mad) >= 3.5
+        ]
+    rounded_median = _rounded(median)
+    return [
+        {
+            "id": video.get("tiktok_video_id"),
+            value_name: value,
+            f"{value_name}_vs_median": _ratio(value, rounded_median),
+        }
+        for video, value in sorted(candidates, key=lambda item: item[1], reverse=True)
+    ]
+
+
+def outlier_analytics(videos: list[dict]) -> dict:
+    return {
+        "views": _robust_outliers(
+            videos,
+            lambda video: _number(video.get("view_count")),
+            "views",
+        )
+    }
+
+
 def _period_statistics(videos: list[dict]) -> dict:
     views = [_number(video.get("view_count")) for video in videos]
     likes = [_number(video.get("like_count")) for video in videos]
@@ -436,20 +555,21 @@ def _period_statistics(videos: list[dict]) -> dict:
     }
 
 
-def _periods(videos: list[dict], now: datetime) -> dict:
-    def recent(days: int) -> list[dict]:
-        cutoff = now - timedelta(days=days)
-        return [
-            video
-            for video in videos
-            if (published := _parse_epoch(video.get("create_time"))) is not None
-            and cutoff <= published <= now
-        ]
+def _recent_videos(videos: list[dict], now: datetime, days: int) -> list[dict]:
+    cutoff = now - timedelta(days=days)
+    return [
+        video
+        for video in videos
+        if (published := _parse_epoch(video.get("create_time"))) is not None
+        and cutoff <= published <= now
+    ]
 
+
+def _periods(videos: list[dict], now: datetime) -> dict:
     return {
         "overall": _period_statistics(videos),
-        "last_30_days": _period_statistics(recent(30)),
-        "last_7_days": _period_statistics(recent(7)),
+        "last_30_days": _period_statistics(_recent_videos(videos, now, 30)),
+        "last_7_days": _period_statistics(_recent_videos(videos, now, 7)),
     }
 
 
@@ -512,6 +632,13 @@ def _hour_performance(videos: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda row: row["hour"])
 
 
+def _short_description(description: str | None, max_length: int = 120) -> str | None:
+    if description is None:
+        return None
+    text = str(description)
+    return text if len(text) <= max_length else f"{text[: max_length - 3]}..."
+
+
 def _top_videos(videos: list[dict], metric: str, limit: int = 10) -> list[dict]:
     rows = []
     for video in videos:
@@ -521,11 +648,16 @@ def _top_videos(videos: list[dict], metric: str, limit: int = 10) -> list[dict]:
         rows.append(
             {
                 "id": video.get("tiktok_video_id"),
-                "description": video.get("description"),
+                "short_description": _short_description(video.get("description")),
+                "published_at_local": video.get("published_at_local"),
                 metric: value,
             }
         )
-    return sorted(rows, key=lambda row: row[metric], reverse=True)[:limit]
+    return sorted(
+        rows,
+        key=lambda row: row.get(metric) if row.get(metric) is not None else -1,
+        reverse=True,
+    )[:limit]
 
 
 def aggregate_analytics(
@@ -541,13 +673,21 @@ def aggregate_analytics(
         "top_videos_by_engagement": _top_videos(videos, "engagement_rate"),
         "top_videos_by_share_rate": _top_videos(videos, "share_rate"),
     }
+    recent_30 = _recent_videos(videos, now, 30)
+    recent_7 = _recent_videos(videos, now, 7)
     return {
         "periods": periods,
         "recent_vs_overall": _recent_vs_overall(periods),
         "duration_performance": _duration_performance(videos),
         "weekday_performance": _weekday_performance(videos),
         "hour_performance": {"warning": HOUR_WARNING, "rows": _hour_performance(videos)},
+        "distribution": distribution_analytics(videos),
+        "outliers": outlier_analytics(videos),
         **rankings,
+        "top_recent_30d_by_views": _top_videos(recent_30, "views"),
+        "top_recent_30d_by_engagement": _top_videos(recent_30, "engagement_rate"),
+        "top_recent_7d_by_views": _top_videos(recent_7, "views"),
+        "top_recent_7d_by_engagement": _top_videos(recent_7, "engagement_rate"),
         # Compatibility aliases for the first dashboard implementation. The
         # compact exporter only emits the explicit top_videos_* names.
         "top_10_by_views": rankings["top_videos_by_views"],

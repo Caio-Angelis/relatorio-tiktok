@@ -23,6 +23,57 @@ def _iso_utc(value: datetime) -> str:
     )
 
 
+def _snapshot_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _recent_snapshots(history: list[dict], limit: int = 3) -> list[dict]:
+    ordered = sorted(
+        (
+            item
+            for item in history
+            if _snapshot_datetime(item.get("collected_at")) is not None
+        ),
+        key=lambda item: _snapshot_datetime(item.get("collected_at")),
+        reverse=True,
+    )
+    result = []
+    for item in ordered[:limit]:
+        snapshot = {
+            "collected_at": item.get("collected_at"),
+            "views": item.get("view_count"),
+            "likes": item.get("like_count"),
+            "comments": item.get("comment_count"),
+            "shares": item.get("share_count"),
+        }
+        result.append(snapshot)
+    return result
+
+
+def _compact(value):
+    """Remove unavailable values from the ChatGPT report, recursively."""
+
+    if isinstance(value, dict):
+        compacted = {}
+        for key, item in value.items():
+            if item is None:
+                continue
+            item = _compact(item)
+            if isinstance(item, dict) and not item:
+                continue
+            compacted[key] = item
+        return compacted
+    if isinstance(value, list):
+        return [_compact(item) for item in value if item is not None]
+    return value
+
+
 def _load_enriched_data(
     database: Database,
     timezone_name: str,
@@ -65,10 +116,10 @@ def _summary_from_overall(overall: dict) -> dict:
     }
 
 
-def _report_video(video: dict) -> dict:
+def _report_video(video: dict, history: list[dict]) -> dict:
     analytics = video.get("analytics", {})
     caption = video.get("caption_features", {})
-    return {
+    report_video = {
         "id": video.get("tiktok_video_id"),
         "description": video.get("description"),
         "published_at": video.get("published_at"),
@@ -103,7 +154,11 @@ def _report_video(video: dict) -> dict:
             "like_rate": analytics.get("like_rate"),
             "comment_rate": analytics.get("comment_rate"),
             "share_rate": analytics.get("share_rate"),
-            "views_per_hour_current": analytics.get("views_per_hour_current"),
+            "lifetime_average_views_per_hour": analytics.get(
+                "lifetime_average_views_per_hour"
+            ),
+            "recent_views_per_hour": analytics.get("recent_views_per_hour"),
+            "recent_likes_per_hour": analytics.get("recent_likes_per_hour"),
         },
         "performance": {
             "views_vs_account_median": analytics.get("views_vs_account_median"),
@@ -136,6 +191,10 @@ def _report_video(video: dict) -> dict:
             "followers_delta_48h_after_publish"
         ),
     }
+    recent_snapshots = _recent_snapshots(history)
+    if recent_snapshots:
+        report_video["recent_snapshots"] = recent_snapshots
+    return report_video
 
 
 def build_report(
@@ -144,7 +203,7 @@ def build_report(
     source: str = "tiktok",
 ) -> dict:
     now = datetime.now(timezone.utc)
-    account, enriched, _histories, account_snapshots = _load_enriched_data(
+    account, enriched, histories, account_snapshots = _load_enriched_data(
         database, timezone_name, now
     )
     aggregate = aggregate_analytics(
@@ -154,7 +213,8 @@ def build_report(
     )
     account_stats = account_analytics(account_snapshots, now=now)
     overall = aggregate["periods"]["overall"]
-    return {
+    report = {
+        "schema_version": 2,
         "generated_at": _iso_utc(now),
         "source": source,
         "timezone": timezone_name,
@@ -173,7 +233,17 @@ def build_report(
             "top_videos_by_views": aggregate["top_videos_by_views"],
             "top_videos_by_engagement": aggregate["top_videos_by_engagement"],
             "top_videos_by_share_rate": aggregate["top_videos_by_share_rate"],
+            "top_recent_30d_by_views": aggregate["top_recent_30d_by_views"],
+            "top_recent_30d_by_engagement": aggregate[
+                "top_recent_30d_by_engagement"
+            ],
+            "top_recent_7d_by_views": aggregate["top_recent_7d_by_views"],
+            "top_recent_7d_by_engagement": aggregate[
+                "top_recent_7d_by_engagement"
+            ],
         },
+        "distribution": aggregate["distribution"],
+        "outliers": aggregate["outliers"],
         "methodology": {
             "window_estimation": (
                 "Each growth value is the total metric from the nearest snapshot "
@@ -187,6 +257,22 @@ def build_report(
                 "Percentiles use midrank percentiles from 0 to 100; tied values "
                 "receive their average rank. A single available value is 100."
             ),
+            "distribution_method": (
+                "Distribution quantiles use linear interpolation on sorted values "
+                "at index (n - 1) * p; max is the largest observed value."
+            ),
+            "outlier_method": (
+                "Views outliers use the absolute modified z-score with median and "
+                "MAD; threshold 3.5. When MAD is zero, non-median values are flagged."
+            ),
+            "recent_velocity_method": (
+                "Recent views/hour and likes/hour use the two most recent real "
+                "snapshots and are omitted when the elapsed time is not positive."
+            ),
+            "null_policy": (
+                "Unavailable optional values are omitted from this compact report; "
+                "the SQLite snapshot history is not modified."
+            ),
             "publication_time": HOUR_WARNING,
             "follower_correlation": FOLLOWER_CORRELATION_NOTE,
         },
@@ -194,8 +280,12 @@ def build_report(
             "The configured Display API scopes do not expose watch time, average watch time, retention curves, traffic sources, completion rate, or followers gained per video.",
             "The SQLite database keeps the complete metric snapshot history; this main report exports compact age windows instead of metric_history.",
         ],
-        "videos": [_report_video(video) for video in enriched],
+        "videos": [
+            _report_video(video, histories.get(video["tiktok_video_id"], []))
+            for video in enriched
+        ],
     }
+    return _compact(report)
 
 
 def _timestamped_name(extension: str) -> str:
@@ -265,7 +355,9 @@ def generate_csv_report(
         "like_rate",
         "comment_rate",
         "share_rate",
-        "views_per_hour_current",
+        "lifetime_average_views_per_hour",
+        "recent_views_per_hour",
+        "recent_likes_per_hour",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -301,7 +393,11 @@ def generate_csv_report(
                     "like_rate": analytics.get("like_rate"),
                     "comment_rate": analytics.get("comment_rate"),
                     "share_rate": analytics.get("share_rate"),
-                    "views_per_hour_current": analytics.get("views_per_hour_current"),
+                    "lifetime_average_views_per_hour": analytics.get(
+                        "lifetime_average_views_per_hour"
+                    ),
+                    "recent_views_per_hour": analytics.get("recent_views_per_hour"),
+                    "recent_likes_per_hour": analytics.get("recent_likes_per_hour"),
                 }
             )
     try:

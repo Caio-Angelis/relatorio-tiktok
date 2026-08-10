@@ -6,10 +6,12 @@ from app.analytics import (
     HOUR_WARNING,
     aggregate_analytics,
     calculate_rates,
+    distribution_analytics,
     duration_bucket,
     enrich_videos,
     extract_caption_features,
     growth_since,
+    outlier_analytics,
 )
 
 
@@ -121,7 +123,9 @@ def test_window_growth_timezone_age_deltas_and_velocity():
     assert enriched["analytics"]["growth_deltas"]["views_growth_6_to_12h"] == 550
     assert enriched["analytics"]["velocity"]["views_per_hour_0_1h"] == 100.0
     assert enriched["analytics"]["velocity"]["views_per_hour_1_3h"] == 100.0
-    assert enriched["analytics"]["views_per_hour_current"] == pytest.approx(69.44, rel=0.01)
+    assert enriched["analytics"]["lifetime_average_views_per_hour"] == pytest.approx(69.44, rel=0.01)
+    assert enriched["analytics"]["recent_views_per_hour"] == pytest.approx(20.83, rel=0.01)
+    assert enriched["analytics"]["recent_likes_per_hour"] == pytest.approx(2.08, rel=0.01)
 
 
 def test_missing_window_is_null_instead_of_extrapolated():
@@ -190,6 +194,58 @@ def test_aggregate_analytics_prioritizes_medians_and_exposes_grouped_stats():
     assert set(aggregate["periods"]) == {"overall", "last_30_days", "last_7_days"}
     assert aggregate["duration_performance"][0]["duration_bucket"] == "0-20s"
     assert aggregate["hour_performance"]["warning"] == HOUR_WARNING
+    assert aggregate["distribution"]["views"]["p50"] == 200
+    assert aggregate["distribution"]["views"]["max"] == 300
+    assert aggregate["outliers"]["views"] == []
+
+
+def test_distribution_and_robust_mad_outlier_detection():
+    videos = [
+        {
+            "tiktok_video_id": f"video-{index}",
+            "view_count": views,
+            "like_count": 10,
+            "comment_count": 1,
+            "share_count": 1,
+            "analytics": {"engagement_rate": 1.0},
+        }
+        for index, views in enumerate((100, 110, 120, 125, 130, 140, 1000))
+    ]
+    distribution = distribution_analytics(videos)
+    outliers = outlier_analytics(videos)
+    assert distribution["views"]["p25"] == 115
+    assert distribution["views"]["p50"] == 125
+    assert distribution["views"]["p90"] == 484
+    assert distribution["views"]["max"] == 1000
+    assert outliers["views"] == [
+        {"id": "video-6", "views": 1000, "views_vs_median": 8.0}
+    ]
+
+
+def test_recent_rankings_are_limited_and_use_recent_periods():
+    now = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    videos = []
+    for index in range(12):
+        published = now - timedelta(days=2 if index < 11 else 40)
+        views = 100 + index * 100
+        videos.append(
+            {
+                "tiktok_video_id": f"video-{index}",
+                "description": "x" * 140,
+                "create_time": int(published.timestamp()),
+                "view_count": views,
+                "like_count": views // 10,
+                "comment_count": 1,
+                "share_count": 1,
+            }
+        )
+    enriched = enrich_videos(videos, {}, now=now)
+    aggregate = aggregate_analytics(enriched, now=now)
+    assert len(aggregate["top_recent_30d_by_views"]) == 10
+    assert len(aggregate["top_recent_7d_by_engagement"]) == 10
+    assert aggregate["top_recent_30d_by_views"][0]["id"] == "video-10"
+    assert aggregate["top_recent_7d_by_engagement"][0]["short_description"].endswith("...")
+    assert len(aggregate["top_recent_7d_by_engagement"][0]["short_description"]) == 120
 
 
 def test_percentiles_and_account_follower_correlations_are_available():
