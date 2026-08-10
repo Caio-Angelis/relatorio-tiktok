@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Configurações | Relatorio TikTok{% endblock %}
+
+{% block content %}
+  <section class="page-intro compact-intro"><div><p class="eyebrow">Configuração local</p><h1>Conecte com segurança.</h1><p class="intro-copy">Os segredos ficam no seu computador. Esta página mostra somente caminhos e endpoints, nunca valores de tokens.</p></div></section>
+
+  <div class="settings-grid">
+    <section class="panel-card settings-card"><p class="eyebrow">Status</p><h2>Ambiente</h2><dl class="settings-list"><div><dt>Modo</dt><dd>{% if mock_mode %}<span class="tag tag-warning">MOCK_TIKTOK=true</span>{% else %}<span class="tag tag-success">API real</span>{% endif %}</dd></div><div><dt>Client Key/Secret</dt><dd>{% if api_configured %}<span class="tag tag-success">configurados</span>{% else %}<span class="tag tag-danger">preencher app/.env</span>{% endif %}</dd></div><div><dt>Redirect URI</dt><dd><code>{{ redirect_uri }}</code></dd></div><div><dt>Banco local</dt><dd><code>{{ database_path }}</code></dd></div><div><dt>Exports</dt><dd><code>{{ exports_dir }}</code></dd></div></dl></section>
+    <section class="panel-card settings-card"><p class="eyebrow">Permissões solicitadas</p><h2>Scopes</h2><ul class="scope-list">{% for scope in scopes %}<li><code>{{ scope }}</code>{% if scope == 'user.info.basic' %}<span>avatar e display name</span>{% elif scope == 'user.info.stats' %}<span>seguidores, seguindo, likes e vídeos</span>{% elif scope == 'video.list' %}<span>vídeos públicos e métricas do Video Object</span>{% endif %}</li>{% endfor %}</ul><p class="muted small">Username, bio, link de perfil e verificação exigem <code>user.info.profile</code>; o app não solicita esse scope adicional.</p></section>
+  </div>
+
+  <section class="panel-card endpoint-card"><p class="eyebrow">API oficial utilizada</p><h2>Endpoints confirmados</h2><div class="endpoint-list">{% for name, endpoint in endpoints.items() %}<div><span>{{ name|replace('_', ' ')|title }}</span><code>{{ endpoint }}</code></div>{% endfor %}</div></section>
+
+  <section class="panel-card limitations-card"><p class="eyebrow">Limitações importantes</p><h2>O que não será inventado.</h2><div class="limitation-grid"><div><strong>Não disponível com estes scopes</strong><p class="muted">watch time, average watch time, retention curve, traffic sources, completion rate e followers gained por vídeo.</p></div><div><strong>O histórico é local</strong><p class="muted">O app só consegue calcular crescimento depois de você realizar coletas ao longo do tempo. Sem snapshots antigos, growth_24h e growth_48h ficam como dados insuficientes.</p></div><div><strong>Correlação não é causalidade</strong><p class="muted">Melhores dias e horários são agrupamentos históricos do acervo, não garantias de performance futura.</p></div></div></section>
+{% endblock %}

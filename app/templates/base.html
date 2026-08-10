@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="description" content="Relatorio TikTok — analytics local para sua própria conta.">
+    <title>{% block title %}Relatorio TikTok{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="shell nav-shell">
+        <a class="app-brand" href="{{ url_for('index') }}" aria-label="Relatorio TikTok início">
+          <span class="app-mark" aria-hidden="true"><span></span></span>
+          <span>Relatorio TikTok</span>
+        </a>
+        <nav class="app-nav" aria-label="Navegação principal">
+          <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Dashboard</a>
+          <a href="{{ url_for('videos_page') }}" class="{% if request.endpoint in ['videos_page', 'video_detail', 'update_video_metadata'] %}active{% endif %}">Vídeos</a>
+          <a href="{{ url_for('settings_page') }}" class="{% if request.endpoint == 'settings_page' %}active{% endif %}">Configurações</a>
+        </nav>
+        <div class="connection-pill {% if connected %}is-connected{% else %}is-disconnected{% endif %}">
+          <span class="status-dot" aria-hidden="true"></span>
+          {% if mock_mode %}Modo mock{% elif connected %}TikTok conectado{% else %}TikTok não conectado{% endif %}
+        </div>
+      </div>
+    </header>
+
+    <div class="shell flash-stack" aria-live="polite">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">
+            <span>{{ message }}</span>
+            <button type="button" class="flash-close" data-dismiss-flash aria-label="Fechar">×</button>
+          </div>
+        {% endfor %}
+      {% endwith %}
+    </div>
+
+    <main class="shell page-shell">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer">
+      <div class="shell footer-shell">
+        <span>Relatorio TikTok · dados locais</span>
+        <span>Porta padrão: 3455</span>
+      </div>
+    </footer>
+
+    {% block extra_scripts %}{% endblock %}
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </body>
+</html>

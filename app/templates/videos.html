@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Vídeos | Relatorio TikTok{% endblock %}
+
+{% block content %}
+  <section class="page-intro compact-intro">
+    <div><p class="eyebrow">Acervo local</p><h1>Todos os vídeos.</h1><p class="intro-copy">Cada coleta atualiza os dados do vídeo e preserva snapshots históricos das métricas disponíveis.</p></div>
+    <div class="sort-box"><label for="sort-videos">Ordenar por</label><select id="sort-videos" data-sort-url="{{ url_for('videos_page') }}">{% for value, label in sort_options.items() %}<option value="{{ value }}" {% if value == selected_sort %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  </section>
+
+  {% if videos %}
+    <div class="video-grid">
+      {% for video in videos %}
+        <a class="video-card" href="{{ url_for('video_detail', video_id=video.id) }}">
+          <div class="video-cover">
+            {% if safe_external_url(video.cover_image_url) %}<img src="{{ safe_external_url(video.cover_image_url) }}" alt="Capa de vídeo">{% else %}<div class="cover-placeholder">RT</div>{% endif %}
+            <span class="duration-badge">{% if video.duration is not none %}{{ video.duration }}s{% else %}—{% endif %}</span>
+          </div>
+          <div class="video-card-body"><p class="video-card-title">{{ video.description or video.title or 'Sem descrição' }}</p><span class="muted">{{ format_datetime(video.create_time) }}</span><div class="video-stats"><span>{{ format_number(video.view_count) }} views</span><span>{{ format_percent(video.analytics.engagement_rate) }} eng.</span></div></div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state large"><strong>Nenhum vídeo disponível.</strong><span>Conecte o TikTok e atualize os dados no dashboard.</span></div>
+  {% endif %}
+{% endblock %}

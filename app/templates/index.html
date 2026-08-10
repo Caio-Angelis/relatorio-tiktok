@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | Relatorio TikTok{% endblock %}
+
+{% block content %}
+  <section class="page-intro dashboard-intro">
+    <div>
+      <p class="eyebrow">TikTok Content Performance Analytics</p>
+      <h1>Seu conteúdo, visto com clareza.</h1>
+      <p class="intro-copy">Conecte sua própria conta, mantenha um histórico local das métricas e descubra quais sinais aparecem nos seus vídeos.</p>
+    </div>
+    <div class="intro-actions">
+      {% if connected %}
+        <button class="button button-primary" type="button" data-action="sync">Atualizar dados agora <span aria-hidden="true">↻</span></button>
+        <div class="action-row">
+          <button class="button button-secondary" type="button" data-action="export-json">Gerar relatório para ChatGPT</button>
+          <button class="button button-secondary" type="button" data-action="export-csv">Exportar CSV</button>
+        </div>
+      {% else %}
+        <a class="button button-primary" href="{{ url_for('auth_tiktok') }}">Conectar TikTok <span aria-hidden="true">→</span></a>
+        {% if not api_configured %}
+          <small class="action-help">Preencha `app/.env` antes de conectar.</small>
+        {% endif %}
+      {% endif %}
+      <p id="sync-status" class="action-status" role="status"></p>
+    </div>
+  </section>
+
+  {% if mock_mode %}
+    <div class="mock-banner"><strong>Modo mock ativo.</strong> Os dados exibidos são fictícios e ficam em `database/relatorio_tiktok_mock.db`, separados do banco real.</div>
+  {% endif %}
+
+  {% if connected %}
+    <section class="account-strip panel-card">
+      <div class="account-person">
+        {% if safe_external_url(account.avatar_url) %}
+          <img class="avatar" src="{{ safe_external_url(account.avatar_url) }}" alt="Avatar de {{ account.display_name or 'sua conta' }}">
+        {% else %}
+          <div class="avatar avatar-placeholder" aria-hidden="true">RT</div>
+        {% endif %}
+        <div>
+          <p class="label">Conta analisada</p>
+          <h2>{{ account.display_name or 'Nome não disponível' }}</h2>
+          <p class="muted">{% if account.username %}@{{ account.username }}{% else %}username não disponível com os scopes atuais{% endif %}</p>
+        </div>
+      </div>
+      <div class="account-meta">
+        <span class="label">Última coleta</span>
+        <strong>{{ format_datetime(last_sync) }}</strong>
+        <span class="muted">Horário: {{ app_timezone }}</span>
+      </div>
+      <form action="{{ url_for('disconnect_tiktok') }}" method="post" class="disconnect-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="text-button danger" type="submit">Desconectar TikTok</button>
+      </form>
+    </section>
+
+    <section class="metric-grid" aria-label="Resumo da conta">
+      <article class="metric-card"><span class="metric-label">Seguidores</span><strong>{{ format_number(account.follower_count) }}</strong><span class="metric-caption">snapshot mais recente</span></article>
+      <article class="metric-card"><span class="metric-label">Seguindo</span><strong>{{ format_number(account.following_count) }}</strong><span class="metric-caption">snapshot mais recente</span></article>
+      <article class="metric-card"><span class="metric-label">Likes totais</span><strong>{{ format_number(account.likes_count) }}</strong><span class="metric-caption">informado pelo TikTok</span></article>
+      <article class="metric-card"><span class="metric-label">Vídeos</span><strong>{{ format_number(account.video_count) }}</strong><span class="metric-caption">públicos informados pelo TikTok</span></article>
+      <article class="metric-card metric-card-accent"><span class="metric-label">Views coletadas</span><strong>{{ format_number(analytics.total_views) }}</strong><span class="metric-caption">soma dos vídeos locais</span></article>
+    </section>
+
+    <section class="dashboard-section">
+      <div class="section-heading">
+        <div><p class="eyebrow">Visão rápida</p><h2>Desempenho recente</h2></div>
+        <a class="inline-link" href="{{ url_for('videos_page') }}">Ver todos os vídeos <span aria-hidden="true">→</span></a>
+      </div>
+      {% if videos %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Vídeo</th><th>Publicado</th><th>Views</th><th>Likes</th><th>Comentários</th><th>Shares</th><th>Engagement</th></tr></thead>
+            <tbody>
+              {% for video in videos %}
+                <tr>
+                  <td><a class="video-cell" href="{{ url_for('video_detail', video_id=video.id) }}"><span class="tiny-thumb">{% if safe_external_url(video.cover_image_url) %}<img src="{{ safe_external_url(video.cover_image_url) }}" alt="">{% else %}<span>RT</span>{% endif %}</span><span><strong>{{ (video.description or video.title or 'Sem descrição')[:68] }}</strong><small>{{ video.tiktok_video_id }}</small></span></a></td>
+                  <td>{{ format_datetime(video.create_time, false) }}</td>
+                  <td>{{ format_number(video.view_count) }}</td>
+                  <td>{{ format_number(video.like_count) }}</td>
+                  <td>{{ format_number(video.comment_count) }}</td>
+                  <td>{{ format_number(video.share_count) }}</td>
+                  <td><span class="rate-pill">{{ format_percent(video.analytics.engagement_rate) }}</span></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state"><strong>Nenhum vídeo coletado ainda.</strong><span>Clique em “Atualizar dados agora” para buscar os vídeos públicos disponíveis.</span></div>
+      {% endif %}
+    </section>
+
+    <section class="insights-grid">
+      <article class="panel-card insight-card">
+        <div class="section-heading compact"><div><p class="eyebrow">Estatística</p><h2>Médias do acervo</h2></div></div>
+        <div class="insight-lines"><div><span>Média de views</span><strong>{{ format_number(analytics.average_views) }}</strong></div><div><span>Mediana de views</span><strong>{{ format_number(analytics.median_views) }}</strong></div><div><span>Engagement médio</span><strong>{{ format_percent(analytics.average_engagement_rate) }}</strong></div></div>
+      </article>
+      <article class="panel-card insight-card">
+        <div class="section-heading compact"><div><p class="eyebrow">Contexto</p><h2>Leitura responsável</h2></div></div>
+        <p class="muted">“Melhores dias” e “melhores horários” são correlações históricas do seu acervo. Eles não provam causalidade e precisam de mais observações para ficar confiáveis.</p>
+        <a class="inline-link" href="{{ url_for('settings_page') }}">Ver limitações da API <span aria-hidden="true">→</span></a>
+      </article>
+    </section>
+  {% else %}
+    <section class="connect-empty panel-card">
+      <div class="connect-icon" aria-hidden="true">↗</div>
+      <div><p class="eyebrow">Primeiro passo</p><h2>Conecte sua própria conta TikTok.</h2><p class="muted">A autorização acontece no fluxo oficial do TikTok. O app local não recebe nem armazena sua senha. Os tokens ficam somente no SQLite local e nunca entram no Git.</p></div>
+      <a class="button button-primary" href="{{ url_for('auth_tiktok') }}">Conectar TikTok</a>
+    </section>
+    <section class="limitations-card panel-card"><p class="eyebrow">Sem promessas falsas</p><h2>O dashboard mostra apenas o que a API disponibiliza.</h2><p class="muted">Watch time, average watch time, retention curve, traffic sources, completion rate e followers gained por vídeo não são tratados como se estivessem disponíveis nos scopes deste app.</p></section>
+  {% endif %}
+{% endblock %}

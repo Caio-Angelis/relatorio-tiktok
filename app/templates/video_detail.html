@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}{{ (video.description or video.title or 'Vídeo')[:48] }} | Relatorio TikTok{% endblock %}
+
+{% block content %}
+  <div class="breadcrumb"><a href="{{ url_for('videos_page') }}">Vídeos</a><span aria-hidden="true">/</span><span>{{ video.tiktok_video_id }}</span></div>
+  <section class="detail-layout">
+    <div class="detail-main">
+      <div class="detail-cover">
+        {% if safe_external_url(video.cover_image_url) %}<img src="{{ safe_external_url(video.cover_image_url) }}" alt="Capa de {{ video.description or 'vídeo' }}">{% else %}<div class="cover-placeholder">Sem capa disponível</div>{% endif %}
+      </div>
+      <div class="detail-heading"><div><p class="eyebrow">Detalhe do vídeo</p><h1>{{ video.description or video.title or 'Sem descrição' }}</h1><p class="muted">Publicado em {{ format_datetime(video.create_time) }} · {{ video.duration or '—' }}{% if video.duration is not none %}s{% endif %}</p></div>{% if safe_external_url(video.share_url) %}<a class="button button-secondary" href="{{ safe_external_url(video.share_url) }}" target="_blank" rel="noopener noreferrer">Abrir no TikTok <span aria-hidden="true">↗</span></a>{% endif %}</div>
+      <section class="detail-section panel-card"><div class="section-heading compact"><div><p class="eyebrow">Métricas atuais</p><h2>Como está agora</h2></div></div><div class="metric-grid detail-metrics"><article class="metric-card"><span class="metric-label">Views</span><strong>{{ format_number(video.view_count) }}</strong></article><article class="metric-card"><span class="metric-label">Likes</span><strong>{{ format_number(video.like_count) }}</strong></article><article class="metric-card"><span class="metric-label">Comentários</span><strong>{{ format_number(video.comment_count) }}</strong></article><article class="metric-card"><span class="metric-label">Shares</span><strong>{{ format_number(video.share_count) }}</strong></article></div><div class="rates-row"><span>Engagement <strong>{{ format_percent(video.analytics.engagement_rate) }}</strong></span><span>Like rate <strong>{{ format_percent(video.analytics.like_rate) }}</strong></span><span>Comment rate <strong>{{ format_percent(video.analytics.comment_rate) }}</strong></span><span>Share rate <strong>{{ format_percent(video.analytics.share_rate) }}</strong></span><span>Views/h aprox. <strong>{{ format_number(video.analytics.views_per_hour) }}</strong></span></div></section>
+      <section class="detail-section panel-card chart-card"><div class="section-heading compact"><div><p class="eyebrow">Histórico</p><h2>Evolução das métricas</h2></div><label class="chart-select">Métrica <select id="metric-select"><option value="views">Views</option><option value="likes">Likes</option><option value="comments">Comentários</option><option value="shares">Shares</option></select></label></div>{% if history %}<div class="chart-wrap"><canvas id="metrics-chart" aria-label="Gráfico de evolução das métricas"></canvas></div>{% else %}<div class="empty-state"><strong>Ainda não há histórico suficiente.</strong><span>O próximo update salvará um snapshot local quando houver métricas.</span></div>{% endif %}</section>
+    </div>
+    <aside class="detail-side">
+      <section class="panel-card manual-card"><p class="eyebrow">Classificação local</p><h2>Adicione contexto.</h2><p class="muted small">Estes campos são seus, não vêm da API do TikTok e ajudam a comparar formatos depois.</p><form action="{{ url_for('update_video_metadata', video_id=video.id) }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Categoria<input name="category" maxlength="120" value="{{ video.category or '' }}" placeholder="ex.: guitarra, tutorial"></label><label>Formato<input name="format" maxlength="120" value="{{ video.format or '' }}" placeholder="ex.: review, demo"></label><label>Hook<textarea name="hook" maxlength="1000" rows="3" placeholder="ex.: Olha o que esse pedal faz...">{{ video.hook or '' }}</textarea></label><label>Notas<textarea name="notes" maxlength="2000" rows="5" placeholder="Observações sobre o vídeo">{{ video.notes or '' }}</textarea></label><button class="button button-primary full-width" type="submit">Salvar classificação</button></form></section>
+      <section class="panel-card detail-meta"><p class="eyebrow">Dados técnicos</p><dl><div><dt>ID TikTok</dt><dd>{{ video.tiktok_video_id }}</dd></div><div><dt>Dimensões</dt><dd>{% if video.width and video.height %}{{ video.width }} × {{ video.height }}{% else %}—{% endif %}</dd></div><div><dt>Último snapshot</dt><dd>{{ format_datetime(video.metrics_collected_at) }}</dd></div></dl></section>
+    </aside>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  {% if history %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script><script>window.metricHistory = {{ chart_points|tojson }};</script>{% endif %}
+{% endblock %}
