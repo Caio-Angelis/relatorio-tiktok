@@ -164,7 +164,11 @@ def create_app(test_config: dict | None = None) -> Flask:
             video["tiktok_video_id"]: database.get_metric_history(video["tiktok_video_id"])
             for video in videos
         }
-        enriched = enrich_videos(videos, histories)
+        enriched = enrich_videos(
+            videos,
+            histories,
+            timezone_name=app.config["APP_TIMEZONE"],
+        )
         return sort_enriched_videos(enriched, sort)
 
     def ensure_mock_data() -> None:
@@ -236,7 +240,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         if video is None:
             abort(404)
         history = database.get_metric_history(video["tiktok_video_id"])
-        enriched = enrich_videos([video], {video["tiktok_video_id"]: history})[0]
+        enriched = enrich_videos(
+            [video],
+            {video["tiktok_video_id"]: history},
+            timezone_name=app.config["APP_TIMEZONE"],
+        )[0]
         chart_points = [
             {
                 "collected_at": item.get("collected_at"),
