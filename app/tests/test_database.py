@@ -61,3 +61,16 @@ def test_metric_snapshots_deduplicate_only_identical_recent_rows(tmp_path):
     assert changed is True
     assert later_same is True
     assert len(database.get_metric_history("video-1")) == 3
+
+
+def test_account_snapshots_can_be_read_without_a_limit(tmp_path):
+    database = Database(tmp_path / "test.db")
+    database.initialize()
+    assert database.insert_account_snapshot(
+        {"follower_count": 10}, "2026-08-10T10:00:00Z"
+    ) is True
+    assert database.insert_account_snapshot(
+        {"follower_count": 20}, "2026-08-10T11:00:00Z"
+    ) is True
+    assert len(database.get_account_snapshots(limit=1)) == 1
+    assert len(database.get_account_snapshots(limit=None)) == 2

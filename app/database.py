@@ -221,15 +221,17 @@ class Database:
             ).fetchone()
         return self._row_to_dict(row)
 
-    def get_account_snapshots(self, limit: int = 30) -> list[dict]:
+    def get_account_snapshots(self, limit: int | None = 30) -> list[dict]:
         with self.connect() as connection:
-            rows = connection.execute(
-                """
+            query = """
                 SELECT * FROM account_snapshots
-                ORDER BY collected_at DESC, id DESC LIMIT ?
-                """,
-                (int(limit),),
-            ).fetchall()
+                ORDER BY collected_at DESC, id DESC
+            """
+            parameters: tuple = ()
+            if limit is not None:
+                query += " LIMIT ?"
+                parameters = (int(limit),)
+            rows = connection.execute(query, parameters).fetchall()
         return [dict(row) for row in rows]
 
     def upsert_video(self, video: dict[str, Any], updated_at: str | None = None) -> bool:
