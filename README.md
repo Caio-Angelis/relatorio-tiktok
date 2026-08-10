@@ -91,7 +91,7 @@ O dashboard mostra seguidores, seguindo, likes, vídeos e a soma das views colet
 
 - capa, descrição, data, duração e link para o TikTok;
 - métricas atuais;
-- engagement rate, like rate, comment rate, share rate e views/hora aproximados;
+- engagement rate, like rate, comment rate, share rate, média de views/hora durante a vida e velocidade recente;
 - gráfico de evolução de views, likes, comentários ou shares;
 - sinais objetivos derivados da descrição, como hashtags, menções, números, emojis e detecção conservadora de resposta a comentário.
 
@@ -101,12 +101,14 @@ O app não exige classificação manual, transcrição, download de vídeos ou r
 
 Os botões do dashboard geram arquivos em `exports/`:
 
-- `tiktok_report_YYYY-MM-DD_HH-MM.json`: relatório compacto para análise no ChatGPT, com fatos coletados, medianas, períodos `overall`/`last_30_days`/`last_7_days`, rankings, desempenho por duração/dia/hora, sinais da legenda e janelas de crescimento;
+- `tiktok_report_YYYY-MM-DD_HH-MM.json`: relatório compacto versão `schema_version: 2` para análise no ChatGPT, com fatos coletados, medianas, distribuições, outliers robustos, períodos `overall`/`last_30_days`/`last_7_days`, rankings recentes, desempenho por duração/dia/hora, sinais da legenda e janelas de crescimento;
 - `tiktok_report_YYYY-MM-DD_HH-MM.csv`: uma linha por vídeo com dados de publicação, sinais objetivos da legenda e métricas atuais. Não inclui campos manuais.
 
-O JSON principal não exporta `metric_history`. Todos os snapshots brutos continuam preservados no SQLite; o relatório representa essa série por valores totais aproximados nas idades de 1h, 3h, 6h, 12h, 24h, 48h e 72h, além de deltas e velocidades entre janelas. Para cada idade, é escolhido o snapshot mais próximo somente dentro destas tolerâncias: ±45min, ±1h, ±2h, ±3h, ±6h, ±8h e ±12h, respectivamente. Sem um snapshot adequado, o valor é `null`; não há extrapolação.
+O JSON principal não exporta `metric_history`. Todos os snapshots brutos continuam preservados no SQLite; o relatório representa essa série por valores totais aproximados nas idades de 1h, 3h, 6h, 12h, 24h, 48h e 72h, além de deltas e velocidades entre janelas. Para cada idade, é escolhido o snapshot mais próximo somente dentro destas tolerâncias: ±45min, ±1h, ±2h, ±3h, ±6h, ±8h e ±12h, respectivamente. Sem um snapshot adequado, a chave é omitida e não há extrapolação. Cada vídeo também leva no máximo os três snapshots reais mais recentes.
 
-As métricas derivadas usam o fuso `America/Campo_Grande`. Percentis ficam entre 0 e 100 e usam midrank: empates recebem a posição média. Estatísticas de horário são correlações históricas, não prova de causalidade.
+As métricas derivadas usam o fuso `America/Campo_Grande`. `lifetime_average_views_per_hour` é a média desde a publicação; `recent_views_per_hour` e `recent_likes_per_hour` usam os dois snapshots mais recentes. Percentis ficam entre 0 e 100 e usam midrank; a distribuição usa interpolação linear. Outliers de views usam modified z-score com mediana e MAD, limiar 3.5. Estatísticas de horário são correlações históricas, não prova de causalidade.
+
+Valores opcionais indisponíveis são omitidos do JSON compacto, em vez de preencher o arquivo com `null`. Essa compactação afeta somente o relatório destinado ao ChatGPT; não altera nem reduz o histórico bruto do SQLite.
 
 Os arquivos são locais, têm permissão restrita quando o sistema permite e estão no `.gitignore`. Se dois exports ocorrerem no mesmo minuto, o segundo pode substituir o nome do primeiro; salve uma cópia se quiser conservar ambos.
 
@@ -200,4 +202,4 @@ Com o ambiente instalado:
 .venv/bin/pytest -q
 ```
 
-Os testes cobrem PKCE, taxas, divisão por zero, crescimento com histórico, upsert de vídeos, deduplicação de snapshots, export JSON/CSV e o fluxo básico do dashboard em modo mock.
+Os testes cobrem PKCE, taxas, divisão por zero, crescimento com histórico, velocidade recente, distribuição, outliers MAD, rankings recentes, upsert de vídeos, deduplicação de snapshots, export JSON/CSV compacto (schema v2, sem nulls opcionais e com no máximo três snapshots recentes) e o fluxo básico do dashboard em modo mock.
