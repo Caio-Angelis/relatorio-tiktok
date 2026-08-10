@@ -1,0 +1,30 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+app/.env
+app/.env.*
+!app/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local application data
+*.db
+*.db-*
+database/*.db
+tokens/
+exports/*.json
+exports/*.csv
+exports/*.tmp
+
+# Local tooling
+.coverage
+htmlcov/
+.mypy_cache/
+.DS_Store
