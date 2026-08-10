@@ -14,4 +14,4 @@ Open `index.html` directly in a browser, or serve the folder with any simple sta
 
 ## Before TikTok app review
 
-Replace the `[CONTACT_EMAIL]` placeholder in `terms.html` and `privacy.html` with a real contact email address before submitting the application for review.
+Contact email: caioangelis80@gmail.com
