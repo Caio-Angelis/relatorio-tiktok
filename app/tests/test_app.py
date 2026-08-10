@@ -44,3 +44,8 @@ def test_mock_dashboard_database_and_exports(tmp_path):
     assert videos.status_code == 200
     detail = client.get("/videos/1")
     assert detail.status_code == 200
+    detail_html = detail.get_data(as_text=True)
+    assert 'name="category"' not in detail_html
+    assert 'name="format"' not in detail_html
+    assert 'name="hook"' not in detail_html
+    assert 'name="notes"' not in detail_html

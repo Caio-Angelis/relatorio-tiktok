@@ -85,7 +85,7 @@ Use **Atualizar dados agora** no dashboard. A operação:
 
 Para evitar centenas de linhas idênticas, o app não salva um snapshot de vídeo se todas as métricas forem iguais às do snapshot anterior e ele tiver menos de 5 minutos. Se alguma métrica mudar, ou se passarem 5 minutos, uma nova linha é salva. A mesma regra é aplicada aos snapshots da conta.
 
-## Dashboard, vídeos e classificação
+## Dashboard e vídeos
 
 O dashboard mostra seguidores, seguindo, likes, vídeos e a soma das views coletadas. A página **Vídeos** permite ordenar por data, views, likes, shares, engagement e share rate. Cada vídeo tem uma página própria com:
 
@@ -93,16 +93,20 @@ O dashboard mostra seguidores, seguindo, likes, vídeos e a soma das views colet
 - métricas atuais;
 - engagement rate, like rate, comment rate, share rate e views/hora aproximados;
 - gráfico de evolução de views, likes, comentários ou shares;
-- campos locais editáveis: `category`, `format`, `hook` e `notes`.
+- sinais objetivos derivados da descrição, como hashtags, menções, números, emojis e detecção conservadora de resposta a comentário.
 
-Os campos manuais não são enviados para o TikTok. Eles existem apenas para análise local e exportação.
+O app não exige classificação manual, transcrição, download de vídeos ou recomendações por IA. As colunas antigas `category`, `format`, `hook` e `notes` continuam no SQLite somente para compatibilidade com bancos já existentes, mas não são usadas no novo relatório JSON nem no CSV.
 
 ## Exportações
 
 Os botões do dashboard geram arquivos em `exports/`:
 
-- `tiktok_report_YYYY-MM-DD_HH-MM.json`: relatório estruturado para análise por IA, com resumo, rankings, correlações de dia/horário, tags manuais e histórico de métricas;
-- `tiktok_report_YYYY-MM-DD_HH-MM.csv`: uma linha por vídeo com métricas atuais, taxas e campos manuais.
+- `tiktok_report_YYYY-MM-DD_HH-MM.json`: relatório compacto para análise no ChatGPT, com fatos coletados, medianas, períodos `overall`/`last_30_days`/`last_7_days`, rankings, desempenho por duração/dia/hora, sinais da legenda e janelas de crescimento;
+- `tiktok_report_YYYY-MM-DD_HH-MM.csv`: uma linha por vídeo com dados de publicação, sinais objetivos da legenda e métricas atuais. Não inclui campos manuais.
+
+O JSON principal não exporta `metric_history`. Todos os snapshots brutos continuam preservados no SQLite; o relatório representa essa série por valores totais aproximados nas idades de 1h, 3h, 6h, 12h, 24h, 48h e 72h, além de deltas e velocidades entre janelas. Para cada idade, é escolhido o snapshot mais próximo somente dentro destas tolerâncias: ±45min, ±1h, ±2h, ±3h, ±6h, ±8h e ±12h, respectivamente. Sem um snapshot adequado, o valor é `null`; não há extrapolação.
+
+As métricas derivadas usam o fuso `America/Campo_Grande`. Percentis ficam entre 0 e 100 e usam midrank: empates recebem a posição média. Estatísticas de horário são correlações históricas, não prova de causalidade.
 
 Os arquivos são locais, têm permissão restrita quando o sistema permite e estão no `.gitignore`. Se dois exports ocorrerem no mesmo minuto, o segundo pode substituir o nome do primeiro; salve uma cópia se quiser conservar ambos.
 
@@ -147,7 +151,7 @@ Com os scopes atuais, a aplicação coleta, quando disponibilizados pelo TikTok:
 
 `username`, bio, link de perfil e status de verificação exigem `user.info.profile`. Esse scope não está configurado e não é solicitado automaticamente pelo app.
 
-Os analytics locais calculam taxas, média, mediana, rankings, views/hora aproximados e crescimento de 24/48 horas apenas quando existem snapshots antigos suficientes. “Melhores dias” e “melhores horários” são correlações históricas, não certezas causais.
+Os analytics locais calculam taxas, média, mediana, percentis, rankings, views/hora aproximados, janelas de crescimento, deltas, velocidade, períodos recentes, desempenho por duração e agrupamentos por dia/horário. O ChatGPT recebe fatos e métricas para fazer a interpretação estratégica; o aplicativo não classifica temas nem gera recomendações.
 
 Não trate como disponíveis, porque estes scopes/endpoints não os fornecem neste app:
 
@@ -157,6 +161,12 @@ Não trate como disponíveis, porque estes scopes/endpoints não os fornecem nes
 - traffic sources;
 - completion rate;
 - followers gained por vídeo.
+
+O crescimento de seguidores associado a um vídeo é reportado apenas como correlação no nível da conta. O relatório não afirma que um vídeo causou essa mudança.
+
+## Compatibilidade do banco
+
+Esta melhoria é somente de analytics e exportação. O schema atual continua na versão existente, sem apagar tabelas, colunas ou snapshots. O banco é lido como fonte bruta; caso novas colunas sejam necessárias no futuro, elas devem ser adicionadas por migration incremental.
 
 O TikTok também pode alterar permissões, disponibilidade de campos, conteúdo público e limites da API. A documentação atual informa limite padrão de 600 requisições por minuto para `/v2/user/info/`, `/v2/video/list/` e `/v2/video/query/`; quando excedido, a API pode responder HTTP 429 com `rate_limit_exceeded`.
 
