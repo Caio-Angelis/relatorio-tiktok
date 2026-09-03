@@ -168,6 +168,10 @@ class SyncService:
                 video["tiktok_video_id"], video, collected_at=collected_at
             ):
                 metric_snapshots_saved += 1
+        # Keep the AI queue in sync with the existing videos table. This only
+        # inserts missing pending rows; completed semantic analyses are never
+        # touched by a normal TikTok sync.
+        self.database.ensure_ai_analysis_rows()
         return SyncSummary(
             videos_found=len(normalized_videos),
             new_videos=new_videos,

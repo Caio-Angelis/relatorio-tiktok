@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}IA local | Relatorio TikTok{% endblock %}
+
+{% block content %}
+  <section class="page-intro compact-intro">
+    <div>
+      <p class="eyebrow">Análise semântica local</p>
+      <h1>IA para o seu acervo.</h1>
+      <p class="intro-copy">Um vídeo por vez: download temporário, Whisper local, frames e Qwen3-VL local. As análises e o progresso ficam no SQLite.</p>
+    </div>
+    <div class="intro-actions ai-actions">
+      <button class="button button-primary" type="button" data-action="ai-analyze-library" {% if not ai_runtime.ready %}disabled{% endif %}>Analisar biblioteca com IA</button>
+      <div class="action-row">
+        <button class="button button-secondary" type="button" data-action="ai-pause">Pausar</button>
+        <button class="button button-secondary" type="button" data-action="ai-continue">Continuar</button>
+        <button class="button button-secondary" type="button" data-action="ai-retry-failed">Tentar novamente falhas</button>
+      </div>
+      <p id="ai-action-status" class="action-status" role="status"></p>
+    </div>
+  </section>
+
+  {% if not ai_runtime.ready %}
+    <section class="panel-card ai-warning">
+      <strong>{{ ai_runtime.message }}</strong>
+      <p class="muted">A aplicação antiga continua disponível. Instale o stack local com <code>./setup_ai.sh</code>, configure <code>AI_ENABLED=true</code> em <code>app/.env</code> e reinicie o Flask.</p>
+      <p class="muted small">Modelo: <code>{{ ai_runtime.model }}</code> · Whisper: <code>{{ ai_runtime.whisper_model }}</code> · dispositivo: <code>{{ ai_runtime.device }}</code></p>
+    </section>
+  {% endif %}
+
+  {% if mock_mode %}
+    <div class="mock-banner"><strong>Modo mock.</strong> As análises semânticas já exibidas são sintéticas e não carregam modelos reais.</div>
+  {% endif %}
+
+  <section class="panel-card ai-runtime-strip"><div><span class="label">GPU</span><strong>{{ ai_runtime.gpu_name or 'não detectada' }}</strong><span class="muted small">{{ ai_runtime.vram_gb or '—' }}{% if ai_runtime.vram_gb %} GB VRAM{% endif %}</span></div><div><span class="label">Modelo visual</span><strong>{{ ai_runtime.model }}</strong><span class="muted small">dtype {{ ai_runtime.vision_dtype }}</span></div><div><span class="label">Whisper</span><strong>{{ ai_runtime.whisper_model }}</strong><span class="muted small">CUDA · FP16</span></div><div><span class="label">CUDA</span><strong>{{ 'disponível' if ai_runtime.cuda_available else 'indisponível' }}</strong><span class="muted small">{{ ai_runtime.torch_version or 'PyTorch não instalado' }}</span></div></section>
+
+  <section class="ai-overview-grid">
+    <article class="metric-card"><span class="metric-label">Biblioteca</span><strong data-ai-count="total">{{ ai_status.total }}</strong><span class="metric-caption">vídeos no SQLite</span></article>
+    <article class="metric-card"><span class="metric-label">Analisados</span><strong data-ai-count="completed">{{ ai_status.completed }}</strong><span class="metric-caption">status completed</span></article>
+    <article class="metric-card"><span class="metric-label">Pendentes</span><strong data-ai-count="pending">{{ ai_status.pending }}</strong><span class="metric-caption">não processados</span></article>
+    <article class="metric-card"><span class="metric-label">Falharam</span><strong data-ai-count="failed">{{ ai_status.failed }}</strong><span class="metric-caption">download, Whisper ou VLM</span></article>
+  </section>
+
+  <section class="panel-card ai-progress-card" data-ai-page>
+    <div class="section-heading compact">
+      <div><p class="eyebrow">Fila persistente</p><h2>Progresso</h2></div>
+      <span class="tag {% if ai_status.worker_running %}tag-success{% else %}tag-warning{% endif %}" data-ai-job-status>{{ ai_status.job_status or 'idle' }}</span>
+    </div>
+    <div class="progress-track" aria-label="Progresso da análise"><span id="ai-progress" style="width: {{ ((ai_status.completed / ai_status.total * 100) if ai_status.total else 0)|round(1) }}%"></span></div>
+    <div class="progress-meta"><strong data-ai-progress-label>{{ ai_status.completed }} / {{ ai_status.total }}</strong><span data-ai-current>{% if ai_status.current_video_id %}{{ ai_status.current_video_id }} · {{ ai_status.current_stage }}{% else %}Nenhum vídeo em andamento{% endif %}</span></div>
+    <p class="muted small" data-ai-last-error>{% if ai_status.last_error %}{{ ai_status.last_error }}{% endif %}</p>
+  </section>
+
+  <section class="ai-help-grid">
+    <article class="panel-card detail-meta"><p class="eyebrow">Fluxo</p><h2>Checkpoint por vídeo</h2><p class="muted small">Vídeos concluídos não são reanalisados automaticamente. Um erro fica salvo no banco e pode ser tentado novamente sem perder os demais.</p></article>
+    <article class="panel-card detail-meta"><p class="eyebrow">Estratégia</p><h2>Insights com IA</h2><p class="muted small">Depois de analisar o acervo, gere um relatório estratégico cacheado e baseado nos padrões semânticos cruzados com as métricas reais.</p><a class="inline-link" href="{{ url_for('ai_insights_page') }}">Abrir Insights com IA <span aria-hidden="true">→</span></a></article>
+    <article class="panel-card detail-meta"><p class="eyebrow">Reanálise</p><h2>Atualizar classificação</h2><p class="muted small">A reanálise individual está disponível na página de cada vídeo. A biblioteca inteira exige confirmação e preserva o histórico de métricas.</p><button class="text-button danger" type="button" data-action="ai-reanalyze-library" {% if not ai_runtime.ready %}disabled{% endif %}>Reanalisar biblioteca inteira</button></article>
+  </section>
+{% endblock %}

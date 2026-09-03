@@ -15,10 +15,18 @@ load_dotenv(APP_DIR / ".env")
 load_dotenv(ROOT_DIR / ".env", override=False)
 
 DEFAULT_SCOPES = "user.info.basic,user.info.stats,video.list"
+DEFAULT_AI_TEMP_DIR = ROOT_DIR / "tmp" / "tiktok_ai"
 
 
 def _as_bool(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _as_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _path_from_env(value: object, default: Path) -> Path:
@@ -57,6 +65,36 @@ def settings_from_env(overrides: dict | None = None) -> dict:
             os.getenv("TIKTOK_EXPORTS_DIR"), ROOT_DIR / "exports"
         ),
         "SECRET_KEY": os.getenv("FLASK_SECRET_KEY", "").strip(),
+        # Local AI is opt-in. These values are separate from the light Flask
+        # dependencies so the app can boot without the GPU stack installed.
+        "AI_ENABLED": _as_bool(os.getenv("AI_ENABLED", "false")),
+        "AI_DEVICE": os.getenv("AI_DEVICE", "cuda").strip() or "cuda",
+        "AI_WHISPER_MODEL": os.getenv(
+            "AI_WHISPER_MODEL", "large-v3-turbo"
+        ).strip(),
+        "AI_WHISPER_COMPUTE_TYPE": os.getenv(
+            "AI_WHISPER_COMPUTE_TYPE", "float16"
+        ).strip(),
+        "AI_VISION_MODEL": os.getenv(
+            "AI_VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct"
+        ).strip(),
+        "AI_VISION_DTYPE": os.getenv("AI_VISION_DTYPE", "bfloat16").strip(),
+        "AI_TEMP_DIR": _path_from_env(
+            os.getenv("AI_TEMP_DIR"), DEFAULT_AI_TEMP_DIR
+        ),
+        "AI_DELETE_TEMP_FILES": _as_bool(
+            os.getenv("AI_DELETE_TEMP_FILES", "true")
+        ),
+        "AI_MAX_FRAMES": max(1, _as_int(os.getenv("AI_MAX_FRAMES", "12"), 12)),
+        "AI_MAX_IMAGE_SIDE": max(
+            64, _as_int(os.getenv("AI_MAX_IMAGE_SIDE", "896"), 896)
+        ),
+        "AI_DOWNLOAD_COOKIES_BROWSER": os.getenv(
+            "AI_DOWNLOAD_COOKIES_BROWSER", ""
+        ).strip().lower(),
+        "AI_AUTO_ANALYZE_NEW_VIDEOS": _as_bool(
+            os.getenv("AI_AUTO_ANALYZE_NEW_VIDEOS", "false")
+        ),
         "ROOT_DIR": ROOT_DIR,
         "APP_DIR": APP_DIR,
     }
@@ -64,4 +102,12 @@ def settings_from_env(overrides: dict | None = None) -> dict:
         values.update(overrides)
     values["DATABASE_PATH"] = Path(values["DATABASE_PATH"]).expanduser().resolve()
     values["EXPORTS_DIR"] = Path(values["EXPORTS_DIR"]).expanduser().resolve()
+    values["AI_TEMP_DIR"] = Path(values["AI_TEMP_DIR"]).expanduser().resolve()
+    values["AI_MAX_FRAMES"] = max(1, int(values["AI_MAX_FRAMES"]))
+    values["AI_MAX_IMAGE_SIDE"] = max(64, int(values["AI_MAX_IMAGE_SIDE"]))
+    values["AI_ENABLED"] = _as_bool(values["AI_ENABLED"])
+    values["AI_DELETE_TEMP_FILES"] = _as_bool(values["AI_DELETE_TEMP_FILES"])
+    values["AI_AUTO_ANALYZE_NEW_VIDEOS"] = _as_bool(
+        values["AI_AUTO_ANALYZE_NEW_VIDEOS"]
+    )
     return values

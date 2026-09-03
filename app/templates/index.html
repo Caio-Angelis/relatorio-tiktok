@@ -16,6 +16,7 @@
           <button class="button button-secondary" type="button" data-action="export-json">Gerar relatório para ChatGPT</button>
           <button class="button button-secondary" type="button" data-action="export-csv">Exportar CSV</button>
         </div>
+        <a class="button button-secondary" href="{{ url_for('ai_page') }}">Analisar biblioteca com IA <span aria-hidden="true">✦</span></a>
       {% else %}
         <a class="button button-primary" href="{{ url_for('auth_tiktok') }}">Conectar TikTok <span aria-hidden="true">→</span></a>
         {% if not api_configured %}

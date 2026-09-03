@@ -1,0 +1,14 @@
+# Optional local GPU stack. The normal Flask requirements remain lightweight.
+# The principal vision checkpoint is Qwen/Qwen3-VL-8B-Instruct in BF16.
+torch>=2.13,<2.14
+transformers>=5.16,<5.17
+accelerate>=1.10,<2
+faster-whisper>=1.2,<2
+yt-dlp>=2026.8.19
+pydantic>=2.7,<3
+Pillow>=10.4,<13
+opencv-python-headless>=4.10,<5
+safetensors>=0.5,<1
+huggingface-hub>=0.34,<1
+qwen-vl-utils>=0.0.14,<1
+numpy>=1.26,<3

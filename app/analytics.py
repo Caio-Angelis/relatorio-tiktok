@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import re
 import statistics
 from collections import defaultdict
@@ -819,3 +820,346 @@ def sort_enriched_videos(videos: list[dict], sort: str) -> list[dict]:
         key=lambda video: key(video) if key(video) is not None else -1,
         reverse=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Semantic analytics. These functions only combine completed local AI
+# classifications with the metrics already collected by the application.
+
+SEMANTIC_DIMENSIONS = (
+    "primary_topic",
+    "content_type",
+    "format",
+    "hook_type",
+    "person_names",
+    "bands",
+    "duration_content_type",
+    "topic_hook",
+    "format_hook",
+)
+
+
+def _analysis_map(analyses) -> dict[str, dict]:
+    if isinstance(analyses, dict):
+        source = analyses.items()
+    else:
+        source = (
+            (item.get("tiktok_video_id"), item)
+            for item in (analyses or [])
+            if item.get("tiktok_video_id")
+        )
+    result = {}
+    for video_id, value in source:
+        if not video_id:
+            continue
+        if isinstance(value, dict):
+            payload = value.get("analysis_json", value)
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except (TypeError, ValueError):
+                    payload = {}
+            payload = dict(payload or {}) if isinstance(payload, dict) else {}
+            # A row may have the indexed fields even when the full JSON is
+            # unavailable; use them only as a conservative fallback.
+            for field in ("primary_topic", "content_type", "format", "hook_type", "hook_text", "summary", "confidence"):
+                if payload.get(field) is None and value.get(field) is not None:
+                    payload[field] = value[field]
+            if value.get("status") not in (None, "completed"):
+                continue
+            result[str(video_id)] = payload
+    return result
+
+
+def _semantic_video_metrics(video: dict) -> dict:
+    analytics = video.get("analytics") or calculate_rates(video)
+    return {
+        "views": _number(video.get("view_count")),
+        "engagement_rate": analytics.get("engagement_rate"),
+        "like_rate": analytics.get("like_rate"),
+        "comment_rate": analytics.get("comment_rate"),
+        "share_rate": analytics.get("share_rate"),
+        "views_percentile": analytics.get("views_percentile"),
+    }
+
+
+def _evidence_level(sample_size: int) -> str:
+    if sample_size <= 1:
+        return "caso isolado"
+    if sample_size == 2:
+        return "sinal preliminar"
+    if sample_size <= 4:
+        return "padrão possível"
+    return "evidência interna mais útil"
+
+
+def _semantic_group_values(video: dict, analysis: dict, dimension: str) -> list[str]:
+    def clean(value) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    if dimension in {"person_names", "bands"}:
+        values = analysis.get(dimension) or []
+        values = values if isinstance(values, list) else [values]
+        return [value for value in (clean(item) for item in values) if value]
+    if dimension == "duration_content_type":
+        duration = video.get("duration_bucket") or duration_bucket(video.get("duration"))
+        content_type = clean(analysis.get("content_type"))
+        return [f"{duration} + {content_type}"] if duration and content_type else []
+    if dimension == "topic_hook":
+        topic, hook = clean(analysis.get("primary_topic")), clean(analysis.get("hook_type"))
+        return [f"{topic} + {hook}"] if topic and hook else []
+    if dimension == "format_hook":
+        video_format, hook = clean(analysis.get("format")), clean(analysis.get("hook_type"))
+        return [f"{video_format} + {hook}"] if video_format and hook else []
+    value = clean(analysis.get(dimension))
+    return [value] if value else []
+
+
+def _semantic_group_stats(key: str, group: list[dict]) -> dict:
+    metric_rows = [(_semantic_video_metrics(video), video) for video in group]
+    views = [metrics["views"] for metrics, _video in metric_rows]
+    engagements = [metrics["engagement_rate"] for metrics, _video in metric_rows]
+    likes = [metrics["like_rate"] for metrics, _video in metric_rows]
+    comments = [metrics["comment_rate"] for metrics, _video in metric_rows]
+    shares = [metrics["share_rate"] for metrics, _video in metric_rows]
+    percentiles = [metrics["views_percentile"] for metrics, _video in metric_rows]
+    durations = [_number(video.get("duration")) for video in group]
+    recent_velocities = [
+        (video.get("analytics") or {}).get("recent_views_per_hour") for video in group
+    ]
+    views_24h = [
+        ((video.get("analytics") or {}).get("growth") or {}).get("views", {}).get("24h")
+        for video in group
+    ]
+    views_48h = [
+        ((video.get("analytics") or {}).get("growth") or {}).get("views", {}).get("48h")
+        for video in group
+    ]
+    views_72h = [
+        ((video.get("analytics") or {}).get("growth") or {}).get("views", {}).get("72h")
+        for video in group
+    ]
+    ordered = sorted(
+        (
+            video
+            for video in group
+            if _number(video.get("view_count")) is not None
+        ),
+        key=lambda video: (_number(video.get("view_count")), str(video.get("tiktok_video_id"))),
+    )
+    best = ordered[-1] if ordered else None
+    worst = ordered[0] if ordered else None
+    return {
+        "key": key,
+        "label": key,
+        "sample_size": len(group),
+        "videos": len(group),
+        "evidence_level": _evidence_level(len(group)),
+        "average_views": _mean(views),
+        "median_views": _median(views),
+        "average_engagement": _mean(engagements),
+        "median_engagement": _median(engagements),
+        "average_like_rate": _mean(likes),
+        "median_like_rate": _median(likes),
+        "average_comment_rate": _mean(comments),
+        "median_comment_rate": _median(comments),
+        "average_share_rate": _mean(shares),
+        "median_share_rate": _median(shares),
+        "average_views_percentile": _mean(percentiles),
+        "median_duration_seconds": _median(durations),
+        "median_recent_views_per_hour": _median(recent_velocities),
+        "median_views_24h": _median(views_24h),
+        "median_views_48h": _median(views_48h),
+        "median_views_72h": _median(views_72h),
+        "best_video": (
+            {
+                "id": best.get("tiktok_video_id"),
+                "description": _short_description(best.get("description")),
+                "views": best.get("view_count"),
+            }
+            if best
+            else None
+        ),
+        "worst_video": (
+            {
+                "id": worst.get("tiktok_video_id"),
+                "description": _short_description(worst.get("description")),
+                "views": worst.get("view_count"),
+            }
+            if worst
+            else None
+        ),
+    }
+
+
+def semantic_group_performance(
+    videos: list[dict], analyses, dimension: str
+) -> list[dict]:
+    """Aggregate current/history-enriched videos by one AI field.
+
+    The caller supplies videos enriched by the existing analytics layer when
+    relative percentiles are desired. A group still remains useful when only
+    raw current metrics are available.
+    """
+
+    if dimension not in SEMANTIC_DIMENSIONS:
+        raise ValueError(f"Dimensão semântica desconhecida: {dimension}")
+    analysis_by_id = _analysis_map(analyses)
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for video in videos:
+        video_id = str(video.get("tiktok_video_id") or "")
+        analysis = analysis_by_id.get(video_id)
+        if not analysis:
+            continue
+        for key in _semantic_group_values(video, analysis, dimension):
+            groups[key].append(video)
+    rows = [_semantic_group_stats(key, group) for key, group in groups.items()]
+    return sorted(
+        rows,
+        key=lambda row: (
+            row.get("median_views") if row.get("median_views") is not None else -1,
+            row["sample_size"],
+            row["label"],
+        ),
+        reverse=True,
+    )
+
+
+def _recent_semantic_usage(videos: list[dict], analyses, limits=(5, 10, 20)) -> dict:
+    analysis_by_id = _analysis_map(analyses)
+    ordered = sorted(
+        videos,
+        key=lambda video: (
+            _number(video.get("create_time")) or 0,
+            str(video.get("tiktok_video_id")),
+        ),
+        reverse=True,
+    )
+    result = {}
+    for limit in limits:
+        subset = ordered[:limit]
+        topics: dict[str, int] = defaultdict(int)
+        people: dict[str, int] = defaultdict(int)
+        for video in subset:
+            analysis = analysis_by_id.get(str(video.get("tiktok_video_id")), {})
+            topic = analysis.get("primary_topic")
+            if topic:
+                topics[str(topic)] += 1
+            for person in analysis.get("person_names") or []:
+                people[str(person)] += 1
+        result[str(limit)] = {
+            "videos_considered": len(subset),
+            "topics": dict(sorted(topics.items(), key=lambda item: (-item[1], item[0]))),
+            "people": dict(sorted(people.items(), key=lambda item: (-item[1], item[0]))),
+        }
+    return result
+
+
+def _semantic_pattern_score(row: dict, baselines: dict, recent_samples: int = 0) -> dict:
+    """Rank patterns; this is a prioritization aid, not causal modeling.
+
+    Formula: 55% median-view ratio + 20% share-rate ratio + 15% engagement
+    ratio + 10% sample factor (sample/5 capped at 1), multiplied by a small
+    recency factor of 1..1.15. Missing rates contribute no ratio and their
+    available weights are proportionally renormalized.
+    """
+
+    components = [
+        (0.55, row.get("median_views"), baselines.get("median_views")),
+        (0.20, row.get("median_share_rate"), baselines.get("median_share_rate")),
+        (0.15, row.get("median_engagement"), baselines.get("median_engagement")),
+    ]
+    weighted = 0.0
+    weight_total = 0.0
+    ratios = {}
+    for weight, value, baseline in components:
+        ratio = _ratio(value, baseline)
+        if ratio is not None:
+            ratio = min(3.0, max(0.0, ratio))
+            weighted += weight * ratio
+            weight_total += weight
+        ratios["views" if weight == 0.55 else "share_rate" if weight == 0.20 else "engagement"] = ratio
+    if weight_total:
+        weighted /= weight_total
+    sample_factor = min(1.0, row.get("sample_size", 0) / 5)
+    score = weighted * 0.90 + sample_factor * 0.10
+    recency_factor = 1 + min(0.15, 0.15 * recent_samples / max(row.get("sample_size", 1), 1))
+    score *= recency_factor
+    return {
+        "score": _rounded(score, 3),
+        "sample_factor": _rounded(sample_factor, 3),
+        "recent_samples": recent_samples,
+        "ratios": ratios,
+    }
+
+
+def semantic_analytics(videos: list[dict], analyses) -> dict:
+    """Return all requested semantic groupings and deterministic candidates."""
+
+    group_names = {
+        "topics": "primary_topic",
+        "content_types": "content_type",
+        "formats": "format",
+        "hooks": "hook_type",
+        "people": "person_names",
+        "bands": "bands",
+        "duration_content_type": "duration_content_type",
+        "topic_hook": "topic_hook",
+        "format_hook": "format_hook",
+    }
+    groups = {
+        name: semantic_group_performance(videos, analyses, dimension)
+        for name, dimension in group_names.items()
+    }
+    all_metrics = [_semantic_video_metrics(video) for video in videos if video.get("tiktok_video_id")]
+    baselines = {
+        "median_views": _median(item["views"] for item in all_metrics),
+        "median_share_rate": _median(item["share_rate"] for item in all_metrics),
+        "median_engagement": _median(item["engagement_rate"] for item in all_metrics),
+    }
+    recent_ids = {
+        str(video.get("tiktok_video_id"))
+        for video in sorted(
+            videos,
+            key=lambda item: _number(item.get("create_time")) or 0,
+            reverse=True,
+        )[:10]
+    }
+    ranked = []
+    for group_name in ("topics", "content_types", "formats", "hooks", "people", "bands", "topic_hook", "format_hook"):
+        for row in groups[group_name]:
+            group_videos = []
+            analysis_by_id = _analysis_map(analyses)
+            for video in videos:
+                if row["label"] in _semantic_group_values(
+                    video, analysis_by_id.get(str(video.get("tiktok_video_id")), {}), group_names[group_name]
+                ):
+                    group_videos.append(video)
+            recent_samples = sum(
+                str(video.get("tiktok_video_id")) in recent_ids for video in group_videos
+            )
+            scored = dict(row)
+            scored["dimension"] = group_name
+            scored.update(_semantic_pattern_score(row, baselines, recent_samples))
+            ranked.append(scored)
+    ranked.sort(key=lambda row: (row.get("score", -1), row.get("sample_size", 0), row.get("label", "")), reverse=True)
+    return {
+        "groups": groups,
+        "baselines": baselines,
+        "recent_usage": _recent_semantic_usage(videos, analyses),
+        "pattern_ranking": ranked,
+        "score_formula": (
+            "0.55 mediana de views relativa + 0.20 share rate relativo + "
+            "0.15 engagement relativo + 0.10 fator de amostra; multiplicado "
+            "por fator de recência de até 1.15. Pesos ausentes são renormalizados."
+        ),
+    }
+
+
+# Descriptive aliases keep the semantic layer easy to discover for callers
+# that prefer the older `aggregate_*` naming used elsewhere in this module.
+aggregate_semantic_analytics = semantic_analytics
+group_semantic_performance = semantic_group_performance

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Insights com IA | Relatorio TikTok{% endblock %}
+
+{% block content %}
+  <section class="page-intro compact-intro" data-ai-insights-page>
+    <div><p class="eyebrow">Decisão editorial</p><h1>Insights com IA.</h1><p class="intro-copy">Padrões observados no seu próprio canal, com amostras, medianas e evidências locais. Associação não é causalidade.</p></div>
+    <div class="intro-actions ai-actions"><button class="button button-primary" type="button" data-action="ai-generate-insights" data-ai-force="{{ 'true' if report.cached else 'false' }}" {% if not ai_runtime.ready %}disabled{% endif %}>{% if report.cached %}Regenerar insights{% else %}Gerar insights{% endif %}</button><p id="ai-action-status" class="action-status" role="status"></p></div>
+  </section>
+
+  {% if not ai_runtime.ready %}<section class="panel-card ai-warning"><strong>{{ ai_runtime.message }}</strong><p class="muted">A página ainda pode mostrar o resumo determinístico local. Para gerar recomendações com o Qwen3-VL, execute <code>./setup_ai.sh</code> e use <code>AI_ENABLED=true</code>.</p></section>{% endif %}
+
+  {% if report.summary %}<section class="panel-card insight-hero"><p class="eyebrow">Resumo</p><h2>{{ report.summary }}</h2>{% if report.generated_at %}<p class="muted small">Gerado em {{ format_datetime(report.generated_at) }}{% if report.cached %} · cache reutilizado{% endif %}</p>{% endif %}</section>{% endif %}
+
+  <div class="semantic-section-grid">
+    <section class="panel-card semantic-list"><div class="section-heading compact"><div><p class="eyebrow">O que está funcionando</p><h2>Padrões mais fortes</h2></div></div>
+      {% for row in report.what_is_working or [] %}<article class="semantic-row"><div><strong>{{ row.label or row.key }}</strong><span>{{ row.sample_size }} vídeos · {{ row.evidence_level }}</span></div><div class="semantic-metrics"><b>{% if row.median_views is not none %}{{ format_number(row.median_views) }} views{% else %}views —{% endif %}</b>{% if row.median_engagement is not none %}<span>eng. {{ format_percent(row.median_engagement) }}</span>{% endif %}{% if row.median_share_rate is not none %}<span>share {{ format_percent(row.median_share_rate) }}</span>{% endif %}</div></article>{% else %}<p class="muted">Analise pelo menos um vídeo para formar grupos semânticos.</p>{% endfor %}
+    </section>
+    <section class="panel-card semantic-list"><div class="section-heading compact"><div><p class="eyebrow">Ganchos e formatos</p><h2>Melhores combinações</h2></div></div>
+      {% for row in (report.best_hooks or [])[:5] %}<article class="semantic-row"><div><strong>{{ row.label or row.key }}</strong><span>{{ row.sample_size }} vídeos</span></div><div class="semantic-metrics"><b>{{ format_number(row.median_views) }} views</b><span>{{ row.evidence_level }}</span></div></article>{% endfor %}
+      {% for row in (report.best_formats or [])[:5] %}<article class="semantic-row"><div><strong>{{ row.label or row.key }}</strong><span>{{ row.sample_size }} vídeos</span></div><div class="semantic-metrics"><b>{{ format_number(row.median_views) }} views</b><span>{{ row.evidence_level }}</span></div></article>{% endfor %}
+    </section>
+  </div>
+
+  <div class="semantic-section-grid">
+    <section class="panel-card semantic-list"><div class="section-heading compact"><div><p class="eyebrow">Temas e pessoas</p><h2>Forças do canal</h2></div></div>
+      {% for row in (report.strongest_topics or [])[:8] %}<article class="semantic-row"><div><strong>{{ row.label or row.key }}</strong><span>{{ row.sample_size }} vídeos · {{ row.evidence_level }}</span></div><div class="semantic-metrics"><b>{{ format_number(row.median_views) }} views</b></div></article>{% endfor %}
+      {% for row in (report.strongest_people_bands or [])[:8] %}<article class="semantic-row"><div><strong>{{ row.label or row.key }}</strong><span>{{ row.sample_size }} vídeos</span></div><div class="semantic-metrics"><b>{{ format_number(row.median_views) }} views</b></div></article>{% endfor %}
+    </section>
+    <section class="panel-card semantic-list"><div class="section-heading compact"><div><p class="eyebrow">Combinações promissoras</p><h2>Tema + gancho</h2></div></div>
+      {% for row in (report.promising_combinations or [])[:10] %}<article class="semantic-row"><div><strong>{{ row.label or row.key }}</strong><span>{{ row.sample_size }} vídeos · {{ row.evidence_level }}</span></div><div class="semantic-metrics"><b>{{ format_number(row.median_views) }} views</b>{% if row.average_views_percentile is not none %}<span>p{{ row.average_views_percentile|round|int }}</span>{% endif %}</div></article>{% else %}<p class="muted">Ainda não há combinações suficientes.</p>{% endfor %}
+    </section>
+  </div>
+
+  <section class="panel-card recommendations-card"><div class="section-heading compact"><div><p class="eyebrow">Próximas ideias</p><h2>Prioritárias</h2></div></div><div class="recommendation-grid">{% for idea in report.priority_ideas or [] %}<article class="recommendation"><span class="recommendation-index">{{ loop.index }}</span><h3>{{ idea.title }}</h3><p class="muted small">{{ idea.suggested_hook }}</p><dl><div><dt>Tipo</dt><dd>{{ idea.content_type or '—' }}</dd></div><div><dt>Estrutura</dt><dd>{{ idea.structure|join(' → ') }}</dd></div><div><dt>Confiança</dt><dd>{% if idea.confidence is not none %}{{ (idea.confidence * 100)|round|int }}%{% else %}—{% endif %}</dd></div></dl>{% if idea.evidence %}<ul class="evidence-list">{% for evidence in idea.evidence %}<li>{{ evidence }}</li>{% endfor %}</ul>{% endif %}</article>{% else %}<p class="muted">Nenhuma ideia prioritária disponível.</p>{% endfor %}</div></section>
+
+  <section class="panel-card recommendations-card"><div class="section-heading compact"><div><p class="eyebrow">Experimentais</p><h2>Explorar sem repetir</h2></div></div><div class="recommendation-grid">{% for idea in report.experimental_ideas or [] %}<article class="recommendation recommendation-experimental"><span class="recommendation-index">{{ loop.index }}</span><h3>{{ idea.title }}</h3><p class="muted small">{{ idea.suggested_hook }}</p>{% if idea.why %}<ul class="evidence-list">{% for evidence in idea.why %}<li>{{ evidence }}</li>{% endfor %}</ul>{% endif %}</article>{% else %}<p class="muted">Ainda não há variações experimentais suficientes.</p>{% endfor %}</div></section>
+
+  {% if report.recent_usage %}<section class="panel-card recent-usage-card"><p class="eyebrow">Uso recente</p><h2>Temas usados demais recentemente</h2><div class="usage-grid">{% for limit, usage in report.recent_usage.items() %}<div><strong>Últimos {{ limit }}</strong>{% for topic, amount in (usage.topics or usage.get('topics', {})).items() %}<span>{{ topic }} <b>{{ amount }}</b></span>{% else %}<span class="muted">sem dados</span>{% endfor %}</div>{% endfor %}</div><p class="muted small">Frequência recente é um sinal de concentração editorial, não prova de saturação.</p></section>{% endif %}
+
+  {% if report.limitations %}<section class="panel-card limitations-card"><p class="eyebrow">Leitura responsável</p><ul class="evidence-list">{% for item in report.limitations %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+{% endblock %}

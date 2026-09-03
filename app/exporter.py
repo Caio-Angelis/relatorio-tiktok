@@ -96,6 +96,15 @@ def _load_enriched_data(
     # conservative 30-day account and follower correlation calculations.
     account_snapshots = database.get_account_snapshots(limit=None)
     enriched = add_account_follower_correlations(enriched, account_snapshots)
+    for video in enriched:
+        ai_row = database.get_ai_analysis(video["tiktok_video_id"])
+        if ai_row and ai_row.get("status") == "completed":
+            try:
+                payload = json.loads(ai_row.get("analysis_json") or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            if isinstance(payload, dict):
+                video["_ai_analysis"] = payload
     return account, enriched, histories, account_snapshots
 
 
@@ -194,6 +203,19 @@ def _report_video(video: dict, history: list[dict]) -> dict:
     recent_snapshots = _recent_snapshots(history)
     if recent_snapshots:
         report_video["recent_snapshots"] = recent_snapshots
+    ai = video.get("_ai_analysis") or {}
+    if ai:
+        compact_ai = {
+            "primary_topic": ai.get("primary_topic"),
+            "content_type": ai.get("content_type"),
+            "format": ai.get("format"),
+            "hook_type": ai.get("hook_type"),
+            "hook_text": ai.get("hook_text"),
+            "summary": ai.get("summary"),
+            "confidence": ai.get("confidence"),
+        }
+        if any(value is not None for value in compact_ai.values()):
+            report_video["ai_analysis"] = compact_ai
     return report_video
 
 

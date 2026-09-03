@@ -95,7 +95,90 @@ O dashboard mostra seguidores, seguindo, likes, vídeos e a soma das views colet
 - gráfico de evolução de views, likes, comentários ou shares;
 - sinais objetivos derivados da descrição, como hashtags, menções, números, emojis e detecção conservadora de resposta a comentário.
 
-O app não exige classificação manual, transcrição, download de vídeos ou recomendações por IA. As colunas antigas `category`, `format`, `hook` e `notes` continuam no SQLite somente para compatibilidade com bancos já existentes, mas não são usadas no novo relatório JSON nem no CSV.
+O app não exige classificação manual para o fluxo antigo. A camada opcional de
+IA acrescenta transcrição, download temporário e recomendações locais quando
+habilitada. As colunas antigas `category`, `format`, `hook` e `notes` continuam
+no SQLite somente para compatibilidade com bancos já existentes, mas não são
+usadas no novo relatório JSON nem no CSV.
+
+## Local AI analysis
+
+A camada opcional de IA roda localmente na GPU e não envia vídeos, áudio,
+transcrições ou prompts para serviços de inferência remotos. O TikTok continua
+sendo usado somente para sincronizar os dados da conta; a internet também pode
+ser usada na primeira instalação para baixar dependências e checkpoints.
+
+Modelos usados:
+
+- `Qwen/Qwen3-VL-8B-Instruct` via Transformers, em BF16 por padrão, para frames, texto na tela, conteúdo, estrutura e estratégia;
+- `faster-whisper` `large-v3-turbo`, em CUDA/FP16, para a transcrição com timestamps;
+- `yt-dlp` para baixar um vídeo por vez a partir do `share_url`.
+
+O download, o WAV e os frames ficam em `tmp/tiktok_ai/<tiktok_video_id>/` e
+são removidos após o processamento conforme `AI_DELETE_TEMP_FILES` (em erros,
+os derivados e o arquivo grande são removidos). A análise estruturada e os
+checkpoints ficam no SQLite; vídeos com `completed` não são reprocessados por
+uma fila normal.
+
+### Instalar e habilitar
+
+```bash
+./setup_ai.sh
+```
+
+O script reutiliza `.venv`, verifica FFmpeg/CUDA, instala apenas as
+dependências extras, baixa os dois modelos para o cache local do Hugging Face e
+executa testes de carregamento. Os checkpoints ocupam vários gigabytes e o
+tamanho efetivo varia conforme a versão/arquivos do cache; reserve espaço
+confortável para pesos, cache e temporários. Se FFmpeg estiver faltando, o
+comando sugerido é `sudo apt install ffmpeg` (o script não executa `sudo`).
+
+Depois, em `app/.env`, use:
+
+```dotenv
+AI_ENABLED=true
+AI_DEVICE=cuda
+AI_VISION_DTYPE=bfloat16
+AI_MAX_FRAMES=12
+AI_MAX_IMAGE_SIDE=896
+AI_AUTO_ANALYZE_NEW_VIDEOS=false
+```
+
+Inicie normalmente:
+
+```bash
+./run.sh
+```
+
+Na interface, abra **IA**, sincronize a conta e clique em **Analisar
+biblioteca com IA**. O worker local processa um vídeo completo por vez; a
+página mostra progresso por polling, permite **Pausar** após o vídeo atual,
+**Continuar**, retry de falhas e reanálise individual. **Insights com IA**
+gera um relatório cacheado em `ai_insight_reports`; ele só é regenerado quando
+os dados relevantes mudam ou quando o usuário escolhe regenerar.
+
+Comandos úteis, sem abrir o navegador:
+
+```bash
+python -m app.ai.worker --status
+python -m app.ai.worker --pending
+python -m app.ai.worker --video <tiktok_video_id>
+python -m app.ai.worker --batch
+python -m app.ai.worker --retry-failed
+python -m app.ai.worker --self-test
+```
+
+Sem `AI_ENABLED=true`, sem dependências extras ou sem CUDA disponível, o Flask
+continua iniciando e a página informa `IA local não configurada. Execute
+./setup_ai.sh`. Não há fallback silencioso para CPU e a implementação
+principal não usa quantização, GGUF, bitsandbytes ou APIs de inferência pagas.
+
+O JSON compacto exportado inclui `ai_analysis` por vídeo somente quando existe
+uma análise concluída, com tema, tipo, formato, gancho, resumo e confiança.
+Transcrição completa, segmentos, saída bruta do modelo e arquivos de mídia não
+entram nesse export. A página **Insights com IA** usa medianas, percentis,
+velocidade/janelas históricas quando disponíveis e classifica amostras pequenas
+como sinais limitados; não transforma associação em causalidade.
 
 ## Exportações
 
@@ -153,7 +236,12 @@ Com os scopes atuais, a aplicação coleta, quando disponibilizados pelo TikTok:
 
 `username`, bio, link de perfil e status de verificação exigem `user.info.profile`. Esse scope não está configurado e não é solicitado automaticamente pelo app.
 
-Os analytics locais calculam taxas, média, mediana, percentis, rankings, views/hora aproximados, janelas de crescimento, deltas, velocidade, períodos recentes, desempenho por duração e agrupamentos por dia/horário. O ChatGPT recebe fatos e métricas para fazer a interpretação estratégica; o aplicativo não classifica temas nem gera recomendações.
+Os analytics locais calculam taxas, média, mediana, percentis, rankings,
+views/hora aproximados, janelas de crescimento, deltas, velocidade, períodos
+recentes, desempenho por duração, agrupamentos por dia/horário e, quando a IA
+local está habilitada, agrupamentos semânticos por tema, formato, gancho,
+pessoas e combinações. O relatório externo continua disponível, mas a página
+Insights com IA faz a interpretação dentro do próprio computador.
 
 Não trate como disponíveis, porque estes scopes/endpoints não os fornecem neste app:
 
@@ -168,7 +256,10 @@ O crescimento de seguidores associado a um vídeo é reportado apenas como corre
 
 ## Compatibilidade do banco
 
-Esta melhoria é somente de analytics e exportação. O schema atual continua na versão existente, sem apagar tabelas, colunas ou snapshots. O banco é lido como fonte bruta; caso novas colunas sejam necessárias no futuro, elas devem ser adicionadas por migration incremental.
+A camada de IA adiciona uma migration incremental para o schema v2, sem apagar
+tabelas, colunas, métricas ou snapshots existentes. O banco continua sendo a
+fonte local de verdade; futuras mudanças devem continuar usando migrations
+incrementais.
 
 O TikTok também pode alterar permissões, disponibilidade de campos, conteúdo público e limites da API. A documentação atual informa limite padrão de 600 requisições por minuto para `/v2/user/info/`, `/v2/video/list/` e `/v2/video/query/`; quando excedido, a API pode responder HTTP 429 com `rate_limit_exceeded`.
 
@@ -202,4 +293,10 @@ Com o ambiente instalado:
 .venv/bin/pytest -q
 ```
 
-Os testes cobrem PKCE, taxas, divisão por zero, crescimento com histórico, velocidade recente, distribuição, outliers MAD, rankings recentes, upsert de vídeos, deduplicação de snapshots, export JSON/CSV compacto (schema v2, sem nulls opcionais e com no máximo três snapshots recentes) e o fluxo básico do dashboard em modo mock.
+Os testes cobrem PKCE, taxas, divisão por zero, crescimento com histórico,
+velocidade recente, distribuição, outliers MAD, rankings recentes, upsert de
+vídeos, deduplicação de snapshots, export JSON/CSV compacto (schema v2, sem
+nulls opcionais e com no máximo três snapshots recentes), migration v2,
+persistência/retry/pausa/recuperação da fila IA, seleção e deduplicação de
+frames, parsing/reparo de JSON, falhas isoladas do pipeline, analytics
+semânticos, cache de insights, export compacto da análise e rotas/UI com CSRF.

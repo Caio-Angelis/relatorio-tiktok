@@ -1,30 +1,129 @@
-# Local configuration and secrets
+# ----------------------------------------------------------------------------
+# Local configuration, credentials and secrets
+# ----------------------------------------------------------------------------
 .env
 .env.*
 !.env.example
-app/.env
-app/.env.*
-!app/.env.example
+!**/.env.example
+.envrc
+*.local
+*.secret
+*.secrets
+secrets/
+credentials/
+tokens/
+cookies/
+cookies.txt
+*_cookies.txt
 
+# Private keys and local certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# ----------------------------------------------------------------------------
 # Python
+# ----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*$py.class
+*.so
+.Python
 .venv/
 venv/
-*.egg-info/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# Local application data
+# Packaging and build output
+build/
+dist/
+eggs/
+.eggs/
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+wheelhouse/
+MANIFEST
+
+# Test, type-checking and linting caches
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ----------------------------------------------------------------------------
+# Application runtime data and generated reports
+# ----------------------------------------------------------------------------
+instance/
 *.db
 *.db-*
-database/*.db
-tokens/
-exports/*.json
-exports/*.csv
-exports/*.tmp
+*.sqlite
+*.sqlite3
+*.sqlite3-*
 
-# Local tooling
-.coverage
-htmlcov/
-.mypy_cache/
+exports/*
+!exports/.gitkeep
+reports/
+tmp/
+temp/
+downloads/
+media/
+*.part
+
+# Reports exported by older local runs at the repository root.
+tiktok_report_*.json
+tiktok_report_*.csv
+
+# Local AI/model caches and temporary processing files.
+.cache/
+tmp/tiktok_ai/
+.cache/huggingface/
+huggingface/
+models/
+
+# Logs and local runtime files
+*.log
+logs/
+*.pid
+*.seed
+
+# ----------------------------------------------------------------------------
+# JavaScript/tooling (if used locally by the frontend)
+# ----------------------------------------------------------------------------
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ----------------------------------------------------------------------------
+# Editors and operating systems
+# ----------------------------------------------------------------------------
+.idea/
+.fleet/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
 .DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini

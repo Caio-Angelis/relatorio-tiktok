@@ -16,7 +16,7 @@
             {% if safe_external_url(video.cover_image_url) %}<img src="{{ safe_external_url(video.cover_image_url) }}" alt="Capa de vídeo">{% else %}<div class="cover-placeholder">RT</div>{% endif %}
             <span class="duration-badge">{% if video.duration is not none %}{{ video.duration }}s{% else %}—{% endif %}</span>
           </div>
-          <div class="video-card-body"><p class="video-card-title">{{ video.description or video.title or 'Sem descrição' }}</p><span class="muted">{{ format_datetime(video.create_time) }}</span><div class="video-stats"><span>{{ format_number(video.view_count) }} views</span><span>{{ format_percent(video.analytics.engagement_rate) }} eng.</span></div></div>
+          <div class="video-card-body"><p class="video-card-title">{{ video.description or video.title or 'Sem descrição' }}</p><span class="muted">{{ format_datetime(video.create_time) }}</span><div class="video-stats"><span>{{ format_number(video.view_count) }} views</span><span>{{ format_percent(video.analytics.engagement_rate) }} eng.</span></div><span class="ai-badge ai-badge-{{ video.ai_status or 'pending' }}">{% if video.ai_status == 'completed' %}IA ✓{% elif video.ai_status in ['download_failed', 'transcription_failed', 'analysis_failed'] %}IA erro{% elif video.ai_status in ['downloading', 'transcribing', 'extracting_frames', 'analyzing'] %}IA …{% else %}IA pendente{% endif %}</span></div>
         </a>
       {% endfor %}
     </div>

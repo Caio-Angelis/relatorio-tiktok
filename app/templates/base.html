@@ -19,6 +19,7 @@
         <nav class="app-nav" aria-label="Navegação principal">
           <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">Dashboard</a>
           <a href="{{ url_for('videos_page') }}" class="{% if request.endpoint in ['videos_page', 'video_detail', 'update_video_metadata'] %}active{% endif %}">Vídeos</a>
+          <a href="{{ url_for('ai_page') }}" class="{% if request.endpoint in ['ai_page', 'ai_insights_page'] %}active{% endif %}">IA</a>
           <a href="{{ url_for('settings_page') }}" class="{% if request.endpoint == 'settings_page' %}active{% endif %}">Configurações</a>
         </nav>
         <div class="connection-pill {% if connected %}is-connected{% else %}is-disconnected{% endif %}">
